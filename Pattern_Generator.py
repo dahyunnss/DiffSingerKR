@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import numpy as np
 import mido, os, pickle, yaml, argparse, math, librosa, hgtk, logging, sys, warnings
 import matplotlib
@@ -20,169 +22,169 @@ logging.basicConfig(
     )
 warnings.filterwarnings('ignore')
 
-def AIHub_Mediazen(
-    hyper_paramters: Namespace,
-    dataset_path: str,
-    verbose: bool= False
-    ):
-    skipping_label = [line.strip() for line in open('AIHub_Mediazen_Skipping.txt', 'r').readlines()]    # This is temporal
+# def AIHub_Mediazen(
+#     hyper_paramters: Namespace,
+#     dataset_path: str,
+#     verbose: bool= False
+#     ):
+#     skipping_label = [line.strip() for line in open('AIHub_Mediazen_Skipping.txt', 'r').readlines()]    # This is temporal
 
-    path_dict = {}
-    for root, _, files in os.walk(os.path.join(dataset_path).replace('\\', '/')):
-        for file in files:
-            key, extension = os.path.splitext(file)
-            if not extension.upper() in ['.WAV', '.MID']:
-                continue
-            if key in skipping_label:
-                continue
+#     path_dict = {}
+#     for root, _, files in os.walk(os.path.join(dataset_path).replace('\\', '/')):
+#         for file in files:
+#             key, extension = os.path.splitext(file)
+#             if not extension.upper() in ['.WAV', '.MID']:
+#                 continue
+#             if key in skipping_label:
+#                 continue
             
-            if not key in path_dict.keys():
-                path_dict[key] = {}
-            path_dict[key]['wav' if extension.upper() == '.WAV' else 'mid'] = os.path.join(root, file).replace('\\', '/')            
+#             if not key in path_dict.keys():
+#                 path_dict[key] = {}
+#             path_dict[key]['wav' if extension.upper() == '.WAV' else 'mid'] = os.path.join(root, file).replace('\\', '/')            
 
-    paths = [
-        (value['wav'], value['mid'], key.strip().split('_')[0].upper(), 'AM' + key.strip().split('_')[4].upper())
-        for key, value in path_dict.items()
-        if 'wav' in value.keys() and 'mid' in value.keys()
-        ]
-    paths = [
-        path for path in paths
-        if not os.path.basename(path[0]) in [
-            'ba_10754_+2_s_yej_f_04.wav',
-            'ro_15699_+0_s_s18_m_04.wav',
-            'ro_23930_-2_a_lsb_f_02.wav'
-            ]
-        ]   # invalid patterns
-    genre_dict = {
-        'BA': 'Ballade',
-        'RO': 'Rock',
-        'TR': 'Trot'
-        }
+#     paths = [
+#         (value['wav'], value['mid'], key.strip().split('_')[0].upper(), 'AM' + key.strip().split('_')[4].upper())
+#         for key, value in path_dict.items()
+#         if 'wav' in value.keys() and 'mid' in value.keys()
+#         ]
+#     paths = [
+#         path for path in paths
+#         if not os.path.basename(path[0]) in [
+#             'ba_10754_+2_s_yej_f_04.wav',
+#             'ro_15699_+0_s_s18_m_04.wav',
+#             'ro_23930_-2_a_lsb_f_02.wav'
+#             ]
+#         ]   # invalid patterns
+#     genre_dict = {
+#         'BA': 'Ballade',
+#         'RO': 'Rock',
+#         'TR': 'Trot'
+#         }
 
-    is_eval_generated = False
-    for index, (wav_path, midi_path, genre, singer) in tqdm(
-        enumerate(paths),
-        total= len(paths),
-        desc= 'AIHub_Mediazen'
-        ):
-        music_label = os.path.splitext(os.path.basename(wav_path))[0]
-        if any([
-            os.path.exists(os.path.join(x, 'AIHub_Mediazen', singer, f'{music_label}.pickle').replace('\\', '/'))
-            for x in [hyper_paramters.Train.Eval_Pattern.Path, hyper_paramters.Train.Train_Pattern.Path]
-            ] + [
-            os.path.exists(os.path.join('./note_error/AIHub_Mediazen', singer, f'{music_label}.png'))
-            ]):
-            continue
-        genre = genre_dict[genre]
+#     is_eval_generated = False
+#     for index, (wav_path, midi_path, genre, singer) in tqdm(
+#         enumerate(paths),
+#         total= len(paths),
+#         desc= 'AIHub_Mediazen'
+#         ):
+#         music_label = os.path.splitext(os.path.basename(wav_path))[0]
+#         if any([
+#             os.path.exists(os.path.join(x, 'AIHub_Mediazen', singer, f'{music_label}.pickle').replace('\\', '/'))
+#             for x in [hyper_paramters.Train.Eval_Pattern.Path, hyper_paramters.Train.Train_Pattern.Path]
+#             ] + [
+#             os.path.exists(os.path.join('./note_error/AIHub_Mediazen', singer, f'{music_label}.png'))
+#             ]):
+#             continue
+#         genre = genre_dict[genre]
 
-        mid = mido.MidiFile(midi_path, charset='CP949')
+#         mid = mido.MidiFile(midi_path, charset='CP949')
 
-        music = []
-        note_states = {}
-        last_note = None
+#         music = []
+#         note_states = {}
+#         last_note = None
 
-        # Note on 쉼표
-        # From Lyric to message before note on: real note
-        for message in list(mid):
-            if message.type == 'note_on' and message.velocity != 0:                
-                if len(note_states) == 0:
-                    if message.time < 0.1:
-                        music[-1][0] += message.time
-                    else:
-                        if len(music) > 0 and music[-1][1] == '<X>':
-                            music[-1][0] += message.time
-                        else:
-                            music.append([message.time, '<X>', 0])
-                else:
-                    note_states[last_note]['Time'] += message.time
-                note_states[message.note] = {
-                    'Lyric': None,
-                    'Time': 0.0
-                    }
-                last_note = message.note                
-            elif message.type == 'lyrics':
-                if message.text == '\r' or last_note is None:    # If there is a bug in lyric
-                    if verbose:
-                        logging.warning(f'{wav_path} | {midi_path}')
-                    continue
-                note_states[last_note]['Lyric'] = message.text.strip()
-                note_states[last_note]['Time'] += message.time
-            elif message.type == 'note_off' or (message.type == 'note_on' and message.velocity == 0):
-                note_states[message.note]['Time'] += message.time
-                music.append([note_states[message.note]['Time'], note_states[message.note]['Lyric'], message.note])
-                del note_states[message.note]
-                last_note = None
-            else:
-                if len(note_states) == 0:
-                    if len(music) > 0 and music[-1][1] == '<X>':
-                        music[-1][0] += message.time
-                    else:
-                        music.append([message.time, '<X>', 0])
-                else:
-                    note_states[last_note]['Time'] += message.time
-        if len(note_states) > 0:
-            logging.critical(wav_path, midi_path)
-            logging.critical(note_states)
-            assert False
-        music = [x for x in music if x[0] > 0.0]
+#         # Note on 쉼표
+#         # From Lyric to message before note on: real note
+#         for message in list(mid):
+#             if message.type == 'note_on' and message.velocity != 0:                
+#                 if len(note_states) == 0:
+#                     if message.time < 0.1:
+#                         music[-1][0] += message.time
+#                     else:
+#                         if len(music) > 0 and music[-1][1] == '<X>':
+#                             music[-1][0] += message.time
+#                         else:
+#                             music.append([message.time, '<X>', 0])
+#                 else:
+#                     note_states[last_note]['Time'] += message.time
+#                 note_states[message.note] = {
+#                     'Lyric': None,
+#                     'Time': 0.0
+#                     }
+#                 last_note = message.note                
+#             elif message.type == 'lyrics':
+#                 if message.text == '\r' or last_note is None:    # If there is a bug in lyric
+#                     if verbose:
+#                         logging.warning(f'{wav_path} | {midi_path}')
+#                     continue
+#                 note_states[last_note]['Lyric'] = message.text.strip()
+#                 note_states[last_note]['Time'] += message.time
+#             elif message.type == 'note_off' or (message.type == 'note_on' and message.velocity == 0):
+#                 note_states[message.note]['Time'] += message.time
+#                 music.append([note_states[message.note]['Time'], note_states[message.note]['Lyric'], message.note])
+#                 del note_states[message.note]
+#                 last_note = None
+#             else:
+#                 if len(note_states) == 0:
+#                     if len(music) > 0 and music[-1][1] == '<X>':
+#                         music[-1][0] += message.time
+#                     else:
+#                         music.append([message.time, '<X>', 0])
+#                 else:
+#                     note_states[last_note]['Time'] += message.time
+#         if len(note_states) > 0:
+#             logging.critical(wav_path, midi_path)
+#             logging.critical(note_states)
+#             assert False
+#         music = [x for x in music if x[0] > 0.0]
 
-        audio, _ = librosa.load(wav_path, sr= hyper_paramters.Sound.Sample_Rate)
+#         audio, _ = librosa.load(wav_path, sr= hyper_paramters.Sound.Sample_Rate)
 
-        initial_audio_length = audio.shape[0]
-        while True:
-            if music[0][1] in [None, '', '<X>', 'J']:
-                audio = audio[int(music[0][0] * hyper_paramters.Sound.Sample_Rate):]
-                music = music[1:]
-            else:
-                break
-        while True:
-            if music[-1][1] in ['', '<X>', 'H']:
-                music = music[:-1]
-            else:
-                break
-        audio = audio[:int(sum([x[0] for x in music]) * hyper_paramters.Sound.Sample_Rate)]    # remove last silence
+#         initial_audio_length = audio.shape[0]
+#         while True:
+#             if music[0][1] in [None, '', '<X>', 'J']:
+#                 audio = audio[int(music[0][0] * hyper_paramters.Sound.Sample_Rate):]
+#                 music = music[1:]
+#             else:
+#                 break
+#         while True:
+#             if music[-1][1] in ['', '<X>', 'H']:
+#                 music = music[:-1]
+#             else:
+#                 break
+#         audio = audio[:int(sum([x[0] for x in music]) * hyper_paramters.Sound.Sample_Rate)]    # remove last silence
         
-        # This is to avoid to use wrong data.
-        if initial_audio_length * 0.5 > audio.shape[0]:
-            continue
+#         # This is to avoid to use wrong data.
+#         if initial_audio_length * 0.5 > audio.shape[0]:
+#             continue
 
-        audio = librosa.util.normalize(audio) * 0.95
-        lyrics, notes, durations = Convert_Feature_Based_Music(
-            music= music,
-            sample_rate= hyper_paramters.Sound.Sample_Rate,
-            frame_shift= hyper_paramters.Sound.Frame_Shift,
-            consonant_duration= hyper_paramters.Duration.Consonant_Duration,
-            equality_duration= hyper_paramters.Duration.Equality,
-            verbose= verbose
-            )
-        lyrics_expand, notes_expand, durations_expand = Expand_by_Duration(
-            lyrics= lyrics,
-            notes= notes,
-            durations= durations
-            )
+#         audio = librosa.util.normalize(audio) * 0.95
+#         lyrics, notes, durations = Convert_Feature_Based_Music(
+#             music= music,
+#             sample_rate= hyper_paramters.Sound.Sample_Rate,
+#             frame_shift= hyper_paramters.Sound.Frame_Shift,
+#             consonant_duration= hyper_paramters.Duration.Consonant_Duration,
+#             equality_duration= hyper_paramters.Duration.Equality,
+#             verbose= verbose
+#             )
+#         lyrics_expand, notes_expand, durations_expand = Expand_by_Duration(
+#             lyrics= lyrics,
+#             notes= notes,
+#             durations= durations
+#             )
         
-        is_generated = Pattern_File_Generate(
-            lyric= lyrics,
-            note= notes,
-            duration= durations,
-            lyric_expand= lyrics_expand,
-            note_expand= notes_expand,
-            duration_expand= durations_expand,
-            audio= audio,
-            music_label= music_label,
-            singer= singer,
-            genre= genre,
-            dataset= 'AIHub_Mediazen',
-            is_eval_music= not is_eval_generated or np.random.rand() < 0.001,
-            hyper_paramters= hyper_paramters
-            )
+#         is_generated = Pattern_File_Generate(
+#             lyric= lyrics,
+#             note= notes,
+#             duration= durations,
+#             lyric_expand= lyrics_expand,
+#             note_expand= notes_expand,
+#             duration_expand= durations_expand,
+#             audio= audio,
+#             music_label= music_label,
+#             singer= singer,
+#             genre= genre,
+#             dataset= 'AIHub_Mediazen',
+#             is_eval_music= not is_eval_generated or np.random.rand() < 0.001,
+#             hyper_paramters= hyper_paramters
+#             )
 
-        is_eval_generated = is_eval_generated or is_generated
+#         is_eval_generated = is_eval_generated or is_generated
 
 def CSD(
-    hyper_paramters: Namespace,
-    dataset_path: str,
-    verbose: bool= False
+    hyper_paramters, # type : Namespace
+    dataset_path, #type : str
+    verbose=False # type : bool= False
     ):
     paths = []
     for root, _, files in os.walk(os.path.join(dataset_path, 'wav').replace('\\', '/')):
@@ -866,7 +868,7 @@ def Metadata_Generate(
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('-csd', '--csd_path', required= False)
-    argparser.add_argument('-am', '--aihub_mediazen_path', required= False)
+    #argparser.add_argument('-am', '--aihub_mediazen_path', required= False)
     argparser.add_argument('-hp', '--hyper_paramters', required= True)
     args = argparser.parse_args()
 
@@ -881,11 +883,11 @@ if __name__ == '__main__':
             hyper_paramters= hp,
             dataset_path= args.csd_path
             )
-    if args.aihub_mediazen_path:
-        AIHub_Mediazen(
-            hyper_paramters= hp,
-            dataset_path= args.aihub_mediazen_path
-            )
+    # if args.aihub_mediazen_path:
+    #     AIHub_Mediazen(
+    #         hyper_paramters= hp,
+    #         dataset_path= args.aihub_mediazen_path
+    #         )
     
     Metadata_Generate(hp, False)
     Metadata_Generate(hp, True)
