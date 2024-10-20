@@ -59,7 +59,7 @@ class Inferencer:
         self.Load_Checkpoint(checkpoint_path)
         self.batch_size = batch_size
 
-    def Dataset_Generate(self, message_times_list, lyrics, notes, singers, genres):
+    def Dataset_Generate(self, message_times_list, lyrics, notes, singers, genres):  #test_input
         token_dict = yaml.load(open(self.hp.Token_Path), Loader=yaml.Loader)
         singer_info_dict = yaml.load(open(self.hp.Singer_Info_Path), Loader=yaml.Loader)
         genre_info_dict = yaml.load(open(self.hp.Genre_Info_Path), Loader=yaml.Loader)
@@ -89,8 +89,8 @@ class Inferencer:
             )
 
     def Load_Checkpoint(self, path):
-        state_dict = torch.load(path, map_location= 'cpu')
-        self.model.load_state_dict(state_dict['Model']['DiffSinger'])        
+        state_dict = torch.load(path, map_location= torch.device('cpu'))
+        self.model.load_state_dict(state_dict['Model']['DiffSVS'])  #DiffSinger      
         self.steps = state_dict['Steps']
 
         self.model.eval()
@@ -149,12 +149,12 @@ class Inferencer:
         return audios
 
     def Inference_Epoch(self, message_times_list, lyrics, notes, singers, genres, ddim_steps, use_tqdm= True):
-        dataloader = self.Dataset_Generate(
-            message_times_list= message_times_list,
-            lyrics= lyrics,
-            notes= notes,
-            singers= singers,
-            genres= genres
+        dataloader = self.Dataset_Generate( 
+            message_times_list= message_times_list, # duration_list
+            lyrics= lyrics, # lyrics
+            notes= notes, # MIDI number
+            singers= singers, # singer info
+            genres= genres # genre info
             )
         if use_tqdm:
             dataloader = tqdm(
@@ -164,6 +164,6 @@ class Inferencer:
                 )
         audios = []
         for tokens, notes, durations, lengths, singers, genres, singer_labels, lyrics in dataloader:
-            audios.extend(self.Inference_Step(tokens, notes, durations, lengths, singers, genres, singer_labels, ddim_steps))
+            audios.extend(self.Inference_Step(tokens, notes, durations, lengths, singers, genres, singer_labels, ddim_steps)) 
         
         return audios
