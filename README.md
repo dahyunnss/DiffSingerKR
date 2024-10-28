@@ -144,3 +144,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 OMP_NUM_THREADS=32 python -m torch.distribu
 
 # TODO
 * Multi singer version version training with [AIHub Multi-Singer Song Dataset](https://aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=465)
+
+# Reference
+* https://github.com/stakira/OpenUtau/wiki
+* OpenUtau v0.1.463.0
